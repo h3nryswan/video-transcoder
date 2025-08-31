@@ -1,0 +1,1 @@
+{"name":"video-transcoder-api","version":"1.0.0","type":"module","main":"server.js","scripts":{"start":"node server.js","load":"node tools/load.js"},"dependencies":{"cors":"^2.8.5","express":"^4.19.2","express-fileupload":"^1.5.1","jsonwebtoken":"^9.0.2","lowdb":"^6.0.1","morgan":"^1.10.0","nanoid":"^5.0.7","node-fetch":"^3.3.2"}}

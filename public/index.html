@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Video Transcoder Client</title>
+  <style>
+    :root { --bg:#0b1020; --fg:#e6eaff; --muted:#a5b4fc; --brand:#6366f1; --ok:#16a34a; --warn:#f59e0b; --err:#ef4444; }
+    *{box-sizing:border-box}
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0}
+    .wrap{max-width:900px;margin:32px auto;padding:0 16px}
+    h1{margin:0 0 16px 0}
+    section{background:#0f1630;border:1px solid #1e2a5a;padding:16px 16px 12px;border-radius:14px;margin:12px 0}
+    label{display:block;margin:.25rem 0 .125rem;color:var(--muted);font-size:.9rem}
+    input[type=text], input[type=password]{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #243162;background:#0b1228;color:var(--fg)}
+    input[type=file]{margin:.5rem 0}
+    button{background:var(--brand);color:white;border:0;border-radius:10px;padding:10px 14px;margin:.25rem 0;cursor:pointer}
+    button[disabled]{opacity:.5;cursor:not-allowed}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+    .status{font-size:.9rem;color:var(--muted)}
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:4px 10px;border-radius:999px;font-size:.8rem;border:1px solid #243162;color:var(--muted)}
+    .pill.ok{color:#bbf7d0;border-color:#134e2a}
+    .pill.err{color:#fecaca;border-color:#7f1d1d}
+    .meta{font-size:.9rem;color:var(--muted)}
+    a.btn{color:white;text-decoration:none;background:#1f2937;border-radius:10px;padding:8px 12px;border:1px solid #334155}
+    .jobs{display:grid;grid-template-columns:1fr;gap:8px}
+    .job{background:#0b1228;border:1px solid #1e2a5a;border-radius:12px;padding:10px 12px}
+    .job h4{margin:0 0 6px 0;font-size:1rem}
+    .progress{height:10px;background:#0a1025;border-radius:999px;overflow:hidden;border:1px solid #223062}
+    .bar{height:100%;width:100%;background:#4f46e5;background-image:linear-gradient(45deg, rgba(255,255,255,.25) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.25) 50%, rgba(255,255,255,.25) 75%, transparent 75%, transparent);background-size:20px 20px;animation:stripe 1s linear infinite}
+    @keyframes stripe { from{background-position:0 0} to{background-position:20px 0} }
+
+    /* --- filename + actions layout fixes --- */
+    ul.files{list-style:none;padding:0;margin:.5rem 0}
+    ul.files li{display:flex;gap:12px;align-items:center;justify-content:space-between;background:#0b1228;border:1px solid #1e2a5a;border-radius:12px;padding:10px 12px;margin:8px 0}
+    .left{flex:1; min-width:0}
+    .filename{display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%}
+    .actions{display:flex;gap:8px;align-items:center; flex-shrink:0}
+
+    /* --- related drawer (slide-out) --- */
+    .scrim{position:fixed; inset:0; background:rgba(0,0,0,.35); backdrop-filter: blur(1px); opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:999}
+    .scrim.show{opacity:1; pointer-events:auto}
+    .drawer{position:fixed; top:0; right:0; height:100%; width:min(420px,95vw); background:#0f1630; color:var(--fg); border-left:1px solid #1e2a5a; transform:translateX(100%); transition:transform .25s ease; z-index:1000; display:flex; flex-direction:column}
+    .drawer.open{transform:translateX(0)}
+    .drawer-header{display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #1e2a5a}
+    .drawer-header h3{overflow:hidden; white-space:nowrap; text-overflow:ellipsis; max-width:calc(100% - 88px)}
+    .drawer-body{padding:12px; overflow:auto; display:grid; grid-template-columns:1fr; gap:12px}
+
+    /* Related result card (text overlay to guarantee visibility) */
+    .related-card{
+      position:relative;
+      display:flex;
+      flex-direction:column;
+      border:1px solid #1e2a5a;
+      border-radius:12px;
+      overflow:hidden;
+      background:#0b1228;
+      text-decoration:none;
+      color:inherit;
+    }
+    .related-card img{
+      width:100%;
+      display:block;
+      aspect-ratio:16/9;
+      object-fit:cover;
+      flex:0 0 auto;
+    }
+    .related-card .info{
+      position:absolute;
+      left:0; right:0; bottom:0;
+      padding:8px 10px;
+      background:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.55) 45%, rgba(0,0,0,.75) 100%);
+      color:var(--fg);
+    }
+    .related-card .t{
+      font-weight:600;
+      line-height:1.25;
+      display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+      overflow:hidden;
+    }
+    .related-card .c{ font-size:.9rem; color:#cbd5e1; margin-top:2px }
+
+    .sr{position:absolute;left:-10000px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Video Transcoder</h1>
+
+    <section>
+      <div class="row">
+        <div style="flex:1;min-width:240px">
+          <label for="user">Username</label>
+          <input id="user" type="text" value="alice" />
+        </div>
+        <div style="flex:1;min-width:240px">
+          <label for="pass">Password</label>
+          <input id="pass" type="password" value="pass123" />
+        </div>
+        <div>
+          <button id="btnLogin">Login</button>
+          <button id="btnLogout" style="margin-left:8px;display:none">Logout</button>
+          <div id="tok" class="status"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h3>Upload</h3>
+      <input type="file" id="file" />
+      <div class="row">
+        <button id="btnUpload">Upload</button>
+        <span id="lastFile" class="status"></span>
+      </div>
+    </section>
+
+    <section>
+      <div class="row" style="justify-content:space-between">
+        <h3>Your files</h3>
+        <button id="btnRefresh">Refresh</button>
+      </div>
+      <ul id="files" class="files"></ul>
+      <div class="status">Showing latest 5 files.</div>
+    </section>
+
+    <section>
+      <div class="row" style="justify-content:space-between">
+        <h3>Jobs</h3>
+        <span class="status">Polling every 2s…</span>
+      </div>
+      <div id="jobs" class="jobs"></div>
+    </section>
+  </div>
+
+  <!-- Related drawer -->
+  <div id="scrim" class="scrim"></div>
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-header">
+      <h3 id="rel-title" style="margin:0;font-size:1.05rem">Related videos</h3>
+      <button id="rel-close" class="btn" style="background:#1f2937;border:1px solid #334155;border-radius:10px;padding:8px 12px">Close</button>
+    </div>
+    <div id="rel-grid" class="drawer-body"></div>
+  </aside>
+
+  <script>
+    let token = "";
+    const API = location.origin;
+    const q = (sel) => document.querySelector(sel);
+    const filesEl = q('#files');
+    const jobsEl = q('#jobs');
+    const runningJobs = new Map();
+    const timers = new Map();
+    const SHOW_LIMIT = 5; // show latest 5 files
+
+    // --- helpers ---
+    async function api(path, opts={}) {
+      const headers = opts.headers || {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const r = await fetch(`${API}${path}`, { ...opts, headers });
+      if (!r.ok) throw new Error(await r.text());
+      return r.headers.get('content-type')?.includes('application/json') ? r.json() : r.text();
+    }
+    function fmtDate(ms){ const d=new Date(ms); return d.toLocaleString(); }
+
+    // --- auth ---
+    async function login(){
+      const username = q('#user').value.trim();
+      const password = q('#pass').value.trim();
+      try{
+        const j = await api('/login', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({username,password})});
+        token = j.token || '';
+        q('#tok').innerHTML = token ? '<span class="pill ok">Logged in</span>' : '<span class="pill err">Login failed</span>';
+        q('#btnLogout').style.display = token ? 'inline-block' : 'none';
+        if (token) { await listFiles(); }
+      }catch(e){
+        q('#tok').innerHTML = `<span class="pill err">${e.message}</span>`;
+      }
+    }
+    function logout(){
+      token=""; q('#tok').innerHTML='<span class="pill">Logged out</span>';
+      filesEl.innerHTML=''; q('#lastFile').textContent='';
+      closeDrawer();
+      for (const [,iv] of timers) clearInterval(iv); timers.clear();
+      runningJobs.clear(); q('#btnLogout').style.display='none';
+    }
+
+    // --- upload ---
+    async function upload(){
+      if(!token) return alert('Please login first');
+      const file = q('#file').files[0];
+      if(!file) return alert('Pick a file');
+      const fd = new FormData(); fd.append('file', file);
+      q('#btnUpload').disabled=true; q('#btnUpload').textContent='Uploading…';
+      try{
+        const j = await api('/upload', {method:'POST', body: fd});
+        q('#lastFile').textContent = 'fileId='+(j.fileId||'?');
+        await listFiles();
+      }catch(e){ alert('Upload failed: '+e.message); }
+      finally{ q('#btnUpload').disabled=false; q('#btnUpload').textContent='Upload'; }
+    }
+
+    // --- list files (limit to latest 5) ---
+    async function listFiles(){
+      if(!token) return;
+      const j = await api('/files');
+      filesEl.innerHTML = '';
+      (j.files||[]).slice(0, SHOW_LIMIT).forEach(f=>{
+        const li = document.createElement('li');
+
+        const left = document.createElement('div');
+        left.className='left';
+        left.innerHTML = `
+          <div class="filename"><strong>${f.name}</strong></div>
+          <div class="meta">${f.kind} • ${fmtDate(f.createdAt)} • id=${f.id}</div>
+        `;
+
+        const actions = document.createElement('div');
+        actions.className='actions';
+
+        if (f.kind === 'original') {
+          const btn = document.createElement('button');
+          btn.textContent = runningJobsHasFile(f.id) ? 'Transcoding…' : 'Transcode';
+          btn.disabled = runningJobsHasFile(f.id);
+          btn.onclick = () => transcode(f.id, btn);
+          actions.appendChild(btn);
+        } else if (f.kind === 'transcoded') {
+          const a = document.createElement('a'); a.className='btn'; a.textContent='Download';
+          a.href = `${API}/download/${f.id}?token=${encodeURIComponent(token)}`;
+          a.target = '_blank'; a.rel='noopener';
+          actions.appendChild(a);
+        }
+
+        const relBtn = document.createElement('button');
+        relBtn.textContent='Related';
+        relBtn.onclick = () => showRelated(f.id, f.name);
+        actions.appendChild(relBtn);
+
+        li.append(left, actions);
+        filesEl.appendChild(li);
+      });
+    }
+    function runningJobsHasFile(fileId){
+      for (const v of runningJobs.values()) if (v.fileId === fileId) return true;
+      return false;
+    }
+
+    // --- transcode + job UI ---
+    async function transcode(fileId, btn){
+      if(!token) return alert('Please login first');
+      btn.disabled = true; btn.textContent = 'Queuing…';
+      try{
+        const j = await api(`/transcode/${fileId}`, {method:'POST'});
+        btn.textContent = 'Transcoding…';
+        const el = renderJob(j.jobId, j.outputFileId, fileId);
+        runningJobs.set(j.jobId, { outputFileId: j.outputFileId, fileId, el });
+        pollJob(j.jobId);
+      }catch(e){
+        btn.disabled = false; btn.textContent = 'Transcode';
+        alert('Failed to start job: '+e.message);
+      }
+    }
+    function renderJob(jobId, outputFileId, fileId){
+      const wrap = document.createElement('div');
+      wrap.className = 'job';
+      wrap.id = `job-${jobId}`;
+      wrap.innerHTML = `
+        <h4>Job <code>${jobId}</code></h4>
+        <div class="row" style="align-items:center;justify-content:space-between">
+          <div class="pill" id="job-${jobId}-state">Queued</div>
+          <a class="btn" id="job-${jobId}-dl" style="display:none" target="_blank" rel="noopener">Download</a>
+        </div>
+        <div class="progress" style="margin-top:8px">
+          <div class="bar" id="job-${jobId}-bar" aria-hidden="true"></div>
+        </div>
+        <div class="meta">Output id: <code>${outputFileId}</code> • Source file id: <code>${fileId}</code></div>
+      `;
+      jobsEl.prepend(wrap); return wrap;
+    }
+    async function pollJob(jobId){
+      const tick = async () => {
+        try{
+          const j = await api(`/jobs/${jobId}`);
+          const stateEl = q(`#job-${jobId}-state`);
+          const barEl = q(`#job-${jobId}-bar`);
+          const dlEl = q(`#job-${jobId}-dl`);
+          if(!stateEl) return;
+
+          stateEl.textContent = j.status;
+          if (j.status === 'running' || j.status === 'queued') {
+            // still working
+          } else if (j.status === 'done') {
+            barEl.style.animation = 'none';
+            stateEl.classList.add('ok'); stateEl.textContent = 'Done';
+            const { outputFileId } = runningJobs.get(jobId) || {};
+            if (outputFileId){ dlEl.href = `${API}/download/${outputFileId}?token=${encodeURIComponent(token)}`; dlEl.textContent='Download'; dlEl.style.display='inline-flex'; }
+            runningJobs.delete(jobId); await listFiles(); clearInterval(timers.get(jobId));
+          } else if (j.status === 'error') {
+            barEl.style.animation = 'none';
+            stateEl.classList.add('err'); stateEl.textContent = 'Error';
+            runningJobs.delete(jobId); clearInterval(timers.get(jobId));
+          }
+        }catch(e){ console.warn('poll error', e); }
+      };
+      const iv = setInterval(tick, 2000);
+      timers.set(jobId, iv);
+      tick();
+    }
+
+    // --- Related drawer ---
+    function openDrawer(title){
+      q('#rel-title').textContent = title ? `Related to “${title}”` : 'Related videos';
+      q('#scrim').classList.add('show');
+      q('#drawer').classList.add('open');
+      q('#drawer').setAttribute('aria-hidden','false');
+    }
+    function closeDrawer(){
+      q('#scrim').classList.remove('show');
+      q('#drawer').classList.remove('open');
+      q('#drawer').setAttribute('aria-hidden','true');
+      q('#rel-grid').innerHTML='';
+    }
+    q('#scrim').addEventListener('click', closeDrawer);
+    q('#rel-close').addEventListener('click', closeDrawer);
+    window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeDrawer(); });
+
+    async function showRelated(fileId, name){
+      if (!token) return alert('Please login first');
+      openDrawer(name || '');
+      const grid = q('#rel-grid');
+      grid.innerHTML = 'Loading…';
+
+      try{
+        const j = await api(`/related/${fileId}`);
+        const items = j.items || [];
+
+        if (items.length) {
+          console.debug('Related: sample item', items[0], Object.keys(items[0] || {}));
+        }
+
+        const frag = document.createDocumentFragment();
+
+        for (const x of items) {
+          const title =
+            x.title ??
+            x.name ??
+            x.snippet?.title ??
+            x.videoTitle ??
+            'Untitled';
+
+          const channel =
+            x.channel ??
+            x.channelTitle ??
+            x.snippet?.channelTitle ??
+            x.uploader ??
+            '';
+
+          const url =
+            x.url ??
+            x.link ??
+            (x.id?.videoId ? `https://www.youtube.com/watch?v=${x.id.videoId}` : '#');
+
+          const thumb =
+            x.thumb ??
+            x.thumbnailUrl ??
+            x.snippet?.thumbnails?.medium?.url ??
+            x.thumbnails?.[0]?.url ??
+            '';
+
+          const a = document.createElement('a');
+          a.className = 'related-card';
+          a.href = url; a.target = '_blank'; a.rel = 'noopener';
+
+          const img = new Image();
+          img.src = thumb; img.alt = title;
+
+          const info = document.createElement('div');
+          info.className = 'info';
+
+          const t = document.createElement('div');
+          t.className = 't'; t.textContent = title;
+
+          const c = document.createElement('div');
+          c.className = 'c'; c.textContent = channel;
+
+          info.append(t, c);
+          a.append(img, info);
+          frag.appendChild(a);
+        }
+
+        grid.innerHTML = '';
+        grid.appendChild(frag);
+        if (!items.length) grid.innerHTML = '<div class="status">No results.</div>';
+
+      } catch (e) {
+        grid.innerHTML = `<div class="status">Failed: ${e.message}</div>`;
+      }
+    }
+
+    // wire up UI
+    q('#btnLogin').addEventListener('click', login);
+    q('#btnLogout').addEventListener('click', logout);
+    q('#btnUpload').addEventListener('click', upload);
+    q('#btnRefresh').addEventListener('click', listFiles);
+  </script>
+</body>
+</html>
